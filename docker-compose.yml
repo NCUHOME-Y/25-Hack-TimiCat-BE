@@ -1,0 +1,49 @@
+# 本地起 Docker Compose
+# 启动：docker compose up -d
+# 日志：docker compose logs -f db
+# 停止：docker compose down
+# 删除数据卷(慎用)：docker compose down -v
+
+services:
+  db:
+    image: postgres:16
+    container_name: focus-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PGUSER:-app}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-app}
+      POSTGRES_DB: ${PGDATABASE:-appdb}
+    ports:
+      - "${PGPORT:-5432}:5432"    # 如果 5432 被占，用 5433:5432，并同步 .env 中 PGPORT/DB_DSN
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-app} -d ${PGDATABASE:-appdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer
+    container_name: focus-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # OPTIONAL: 等有 Dockerfile 后再放开这个服务
+  # app:
+  #   build: .
+  #   container_name: focus-app
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   ports:
+  #     - "${APP_PORT:-8080}:8080"
+
+volumes:
+  pg_data:
