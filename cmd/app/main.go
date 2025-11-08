@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -105,6 +106,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/healthz", healthHandler)
+	mux.HandleFunc("/me", meHandler)
 
 	// 新增：游客登录（前端调用 http://localhost:3001/guest-login）
 	mux.HandleFunc("/guest-login", guestLoginHandler)
@@ -145,4 +147,67 @@ func main() {
 	// 下面这行目前没啥用，后续想在某个 HTTP 请求context中返回标准响应
 	// 或者编译时类型断言以确保函数签名符合预期啥的可以再改，不用的话连同pkgerr包一起删了
 	_ = pkgerr.JSON
+}
+
+// 解析 Authorization: Bearer <token>
+func parseBearer(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer ")
+	}
+	return ""
+}
+
+func verifyGuestToken(tok string) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "dev-guest-secret"
+	}
+	parsed, err := jwt.Parse(tok, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return []byte(secret), nil
+	})
+	if err != nil || !parsed.Valid {
+		return "", fmt.Errorf("invalid token")
+	}
+	if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
+		if vid, _ := claims["vid"].(string); vid != "" {
+			return vid, nil
+		}
+	}
+	return "", fmt.Errorf("missing vid")
+}
+
+// GET /me
+func meHandler(w http.ResponseWriter, r *http.Request) {
+	// 先尝试 Bearer token
+	if tok := parseBearer(r); tok != "" {
+		if vid, err := verifyGuestToken(tok); err == nil {
+			short := vid
+			if i := strings.IndexByte(vid, '-'); i > 0 {
+				short = vid[:i]
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"username":  "guest-" + short,
+				"visitorId": vid,
+			})
+			return
+		}
+	}
+	// 回退：cookie 里拿 tcid（对齐游客登陆）
+	if c, err := r.Cookie(visitorCookieName); err == nil && c.Value != "" {
+		vid := c.Value
+		short := vid
+		if i := strings.IndexByte(vid, '-'); i > 0 {
+			short = vid[:i]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"username":  "guest-" + short,
+			"visitorId": vid,
+		})
+		return
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]any{"code": 401, "message": "unauthorized"})
 }
