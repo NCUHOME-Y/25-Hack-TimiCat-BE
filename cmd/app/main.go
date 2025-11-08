@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/handler"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/service"
@@ -15,6 +20,75 @@ import (
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/logger"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/middleware"
 )
+
+const visitorCookieName = "tcid"
+
+// 简单工具
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func getOrSetVisitorID(w http.ResponseWriter, r *http.Request) string {
+	if c, err := r.Cookie(visitorCookieName); err == nil && c.Value != "" {
+		return c.Value
+	}
+	vid := uuid.NewString()
+	http.SetCookie(w, &http.Cookie{
+		Name:     visitorCookieName,
+		Value:    vid,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   60 * 60 * 24 * 365, // 1年
+		// Secure: true, // 上线到 https 后再打开
+	})
+	return vid
+}
+
+func issueGuestToken(visitorID string) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "dev-guest-secret" // 开发占位，生产换强随机
+	}
+	claims := jwt.MapClaims{
+		"vid":  visitorID,
+		"role": "guest",
+		"iat":  time.Now().Unix(),
+		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(secret))
+}
+
+// /guest-login 处理器
+func guestLoginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
+			"code": 405, "message": "请求方法有误",
+		})
+		return
+	}
+
+	vid := getOrSetVisitorID(w, r)
+	token, err := issueGuestToken(vid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"code": 500, "message": "token 错误",
+		})
+		return
+	}
+	short := vid
+	if i := strings.IndexByte(vid, '-'); i > 0 {
+		short = vid[:i] // 不知道怎么取名，那我就取 uuid 前缀当展示用户名算了
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":    token,
+		"username": "guest-" + short,
+	})
+}
 
 func main() {
 	cfg, err := pkgconfig.Load()
@@ -25,18 +99,25 @@ func main() {
 	log := logger.Init(cfg.Env)
 	defer func() { _ = log.Sync() }()
 
-	// 服务与处理器
+	// 服务与处理器（健康检查保留）
 	hs := service.NewHealthService()
 	healthHandler := handler.NewHealthHandler(hs)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/healthz", healthHandler)
 
-	// 构建中间件链：请求 ID -> 恢复 -> CORS -> mux
-	handlerWithMiddleware := middleware.RequestID(middleware.Recovery(log)(middleware.CORS(mux)))
+	// 新增：游客登录（前端调用 http://localhost:3001/guest-login）
+	mux.HandleFunc("/guest-login", guestLoginHandler)
+
+	// 中间件链：请求ID -> 恢复 -> CORS -> mux
+	handlerWithMiddleware := middleware.RequestID(
+		middleware.Recovery(log)(
+			middleware.CORS(mux),
+		),
+	)
 
 	srv := &http.Server{
-		Addr:    cfg.Addr,
+		Addr:    cfg.Addr, // 对应前端 .env 配成 :3001
 		Handler: handlerWithMiddleware,
 	}
 
@@ -48,19 +129,20 @@ func main() {
 		}
 	}()
 
-	// 优雅关闭
+	// 优雅关闭 (监听Ctrl + c以停止运行)
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM) // 也监听系统发的SIGTERM
 	<-quit
 	log.Info("shutting down server")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 给5秒收尾正在处理的请求
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error("shutdown error", "error", err)
 	}
 	log.Info("server stopped")
+
 	// 下面这行目前没啥用，后续想在某个 HTTP 请求context中返回标准响应
-	// 或者编译时类型断言以确保函数签名符合预期啥的可以再改，不用的话连同14行一起删了
+	// 或者编译时类型断言以确保函数签名符合预期啥的可以再改，不用的话连同pkgerr包一起删了
 	_ = pkgerr.JSON
 }

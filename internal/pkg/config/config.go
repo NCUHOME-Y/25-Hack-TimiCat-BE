@@ -21,7 +21,7 @@ func Load() (*Config, error) {
 	}
 	addr := os.Getenv("ADDR")
 	if addr == "" {
-		addr = ":8080"
+		addr = ":3001"
 	}
 	return &Config{Env: env, Addr: addr}, nil
 }
