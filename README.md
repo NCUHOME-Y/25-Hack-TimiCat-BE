@@ -24,5 +24,21 @@ make run
 ```powershell
 make test
 ```
+4. 数据库相关操作请看 (先起数据库)25-Hack-TimiCat-BE\docker-compose.yml
+
+5.记得安装依赖
+
+```
+go mod download
+```
+
+6.环境
+```
+# 环境：把示例复制成真实 .env
+# 确保里面是：
+#   APP_PORT=3001
+#   DB_DSN=postgres://app:app@localhost:5432/appdb?sslmode=disable
+copy .env.example .env
+```
 
 ps: 项目使用 `github.com/NCUHOME-Y/25-Hack-TimiCat-BE` 作为模块名。
