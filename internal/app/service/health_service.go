@@ -4,4 +4,4 @@ type HealthService struct{}
 
 func NewHealthService() *HealthService { return &HealthService{} }
 
-func (s *HealthService) Status() string { return "成" }
+func (s *HealthService) Status() string { return "ok" }

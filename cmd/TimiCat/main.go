@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	focus "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/focus"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/handler"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/service"
 	pkgconfig "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/config"
@@ -107,9 +111,27 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/healthz", healthHandler)
 	mux.HandleFunc("/me", meHandler)
-
 	// 新增：游客登录（前端调用 http://localhost:3001/guest-login）
 	mux.HandleFunc("/guest-login", guestLoginHandler)
+
+	// ---- 连接数据库（从环境变量 DB_DSN 读取）
+	dsn := os.Getenv("DB_DSN")
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		log.Fatal("db open error", "error", err)
+	}
+	if err := db.PingContext(context.Background()); err != nil {
+		log.Fatal("db ping error", "error", err)
+	}
+	defer db.Close()
+
+	// A 线接口（番茄钟与统计）
+	mux.HandleFunc("/api/v1/sessions/start", focus.StartHandler(db))
+	mux.HandleFunc("/api/v1/sessions/pause", focus.PauseHandler(db))
+	mux.HandleFunc("/api/v1/sessions/resume", focus.ResumeHandler(db))
+	mux.HandleFunc("/api/v1/sessions/finish", focus.FinishHandler(db))
+	mux.HandleFunc("/api/v1/sessions/cancel", focus.CancelHandler(db))
+	mux.HandleFunc("/api/v1/stats/summary", focus.SummaryHandler(db))
 
 	// 中间件链：请求ID -> 恢复 -> CORS -> mux
 	handlerWithMiddleware := middleware.RequestID(
