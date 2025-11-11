@@ -107,11 +107,27 @@ func (s *Store) Resume(ctx context.Context, visitorID string) error {
 		return fmt.Errorf("not paused")
 	}
 
-	_, err = s.db.ExecContext(ctx, `
-	  INSERT INTO focus_segments(session_id, seg_start_at) VALUES ($1, now());
-	  UPDATE focus_sessions SET status='started' WHERE id=$1;
-	`, sid)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO focus_segments(session_id, seg_start_at) VALUES ($1, now())`,
+		sid,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE focus_sessions SET status='started' WHERE id=$1`,
+		sid,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *Store) Finish(ctx context.Context, visitorID string, minSeconds int64) (int64, int64, error) {
@@ -183,11 +199,28 @@ func (s *Store) Cancel(ctx context.Context, visitorID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
-	  UPDATE focus_sessions SET status='canceled', end_at=now() WHERE id=$1;
-	  UPDATE focus_segments SET seg_end_at=COALESCE(seg_end_at, now()) WHERE session_id=$1;
-	`, sid)
-	return err
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE focus_sessions SET status='canceled', end_at=now() WHERE id=$1`,
+		sid,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE focus_segments SET seg_end_at=COALESCE(seg_end_at, now()) WHERE session_id=$1`,
+		sid,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 type DayItem struct {
