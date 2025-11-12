@@ -127,3 +127,65 @@ func SummaryHandler(db *sql.DB) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(sum)
 	}
 }
+
+// 当前会话
+func CurrentHandler(db *sql.DB) http.HandlerFunc {
+	s := NewStore(db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		vid := getVisitorID(w, r)
+		cur, err := s.Current(r.Context(), vid)
+		if err != nil {
+			if err == ErrNoActiveSession {
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(nil)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(cur)
+	}
+}
+
+// 拉取成长事件
+func GrowthPullHandler(db *sql.DB) http.HandlerFunc {
+	s := NewStore(db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		vid := getVisitorID(w, r)
+		limit := 50
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if i, err := strconv.Atoi(v); err == nil && i > 0 && i <= 200 {
+				limit = i
+			}
+		}
+		evs, err := s.PullGrowth(r.Context(), vid, limit)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(evs) // []GrowthEvent
+	}
+}
+
+// 确认成长事件（游标式）
+type ackReq struct {
+	LastID int64 `json:"last_id"`
+}
+
+func GrowthAckHandler(db *sql.DB) http.HandlerFunc {
+	s := NewStore(db)
+	return func(w http.ResponseWriter, r *http.Request) {
+		vid := getVisitorID(w, r)
+		var req ackReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LastID <= 0 {
+			http.Error(w, "invalid last_id", http.StatusBadRequest)
+			return
+		}
+		if err := s.AckGrowthUpTo(r.Context(), vid, req.LastID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}

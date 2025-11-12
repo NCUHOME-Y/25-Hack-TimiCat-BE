@@ -15,6 +15,42 @@ var (
 
 type Store struct{ db *sql.DB }
 
+type Current struct {
+	SessionID      int64     `json:"session_id"`
+	Status         string    `json:"status"` // started|paused
+	Mode           string    `json:"mode"`   // stopwatch|countdown
+	PlannedMinutes *int      `json:"planned_minutes,omitempty"`
+	TaskName       *string   `json:"task_name,omitempty"`
+	StartedAt      time.Time `json:"started_at"`
+	ElapsedSec     int64     `json:"elapsed_sec"`
+}
+
+func (s *Store) Current(ctx context.Context, visitorID string) (Current, error) {
+	var c Current
+	err := s.db.QueryRowContext(ctx, `
+	  SELECT id, status, mode, planned_minutes, task_name, start_at
+	  FROM focus_sessions
+	  WHERE visitor_id=$1 AND status IN ('started','paused')
+	  ORDER BY start_at DESC LIMIT 1
+	`, visitorID).Scan(&c.SessionID, &c.Status, &c.Mode, &c.PlannedMinutes, &c.TaskName, &c.StartedAt)
+	if err == sql.ErrNoRows {
+		return c, ErrNoActiveSession
+	}
+	if err != nil {
+		return c, err
+	}
+
+	var elapsed float64
+	if err := s.db.QueryRowContext(ctx, `
+	  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(seg_end_at, now()) - seg_start_at))),0)
+	  FROM focus_segments WHERE session_id=$1
+	`, c.SessionID).Scan(&elapsed); err != nil {
+		return c, err
+	}
+	c.ElapsedSec = int64(elapsed)
+	return c, nil
+}
+
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
 // 最近一条可变更（started/paused）会话
@@ -153,9 +189,9 @@ func (s *Store) Finish(ctx context.Context, visitorID string, minSeconds int64) 
 	// 计算总时长
 	var totalSec int64
 	if err := tx.QueryRowContext(ctx, `
-	  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))),0)
-	  FROM focus_segments WHERE session_id=$1
-	`, sid).Scan(&totalSec); err != nil {
+  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at)))::bigint, 0)
+  FROM focus_segments WHERE session_id=$1
+`, sid).Scan(&totalSec); err != nil {
 		return 0, 0, err
 	}
 
@@ -238,16 +274,20 @@ type Summary struct {
 func (s *Store) Summary(ctx context.Context, visitorID string, days int) (Summary, error) {
 	var res Summary
 
+	//初始化trend，返回null的话不符合契约
+	res.Trend = make([]DayItem, 0)
+
 	// 近 n 天趋势
 	rows, err := s.db.QueryContext(ctx, `
-	  SELECT date_trunc('day', seg_end_at)::date AS d,
-	         SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int AS m
-	  FROM focus_segments seg
-	  JOIN focus_sessions fs ON fs.id=seg.session_id
-	  WHERE fs.visitor_id=$1 AND fs.status='finished'
-	    AND seg_end_at >= now() - ($2 || ' days')::interval
-	  GROUP BY 1 ORDER BY 1
-	`, visitorID, days)
+      SELECT date_trunc('day', seg_end_at)::date AS d,
+             SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int AS m
+      FROM focus_segments seg
+      JOIN focus_sessions fs ON fs.id=seg.session_id
+      WHERE fs.visitor_id=$1 AND fs.status='finished'
+        AND seg_end_at >= now() - $2 * interval '1 day'
+      GROUP BY 1 ORDER BY 1
+    `, visitorID, days)
+
 	if err != nil {
 		return res, err
 	}
@@ -292,4 +332,45 @@ func (s *Store) Summary(ctx context.Context, visitorID string, days int) (Summar
 		}
 	}
 	return res, nil
+}
+
+// 成长事件确认
+type GrowthEvent struct {
+	ID        int64     `json:"id"`
+	SessionID int64     `json:"session_id"`
+	Minutes   int       `json:"minutes"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) PullGrowth(ctx context.Context, visitorID string, limit int) ([]GrowthEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+	  SELECT id, session_id, minutes, created_at
+	  FROM growth_events
+	  WHERE visitor_id=$1 AND handled=false
+	  ORDER BY id ASC
+	  LIMIT $2
+	`, visitorID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []GrowthEvent
+	for rows.Next() {
+		var ge GrowthEvent
+		if err := rows.Scan(&ge.ID, &ge.SessionID, &ge.Minutes, &ge.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, ge)
+	}
+	return out, nil
+}
+
+// 将 <= lastID 的事件标记为已处理（当前访客）
+func (s *Store) AckGrowthUpTo(ctx context.Context, visitorID string, lastID int64) error {
+	_, err := s.db.ExecContext(ctx, `
+	  UPDATE growth_events SET handled=true
+	  WHERE visitor_id=$1 AND id <= $2
+	`, visitorID, lastID)
+	return err
 }

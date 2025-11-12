@@ -85,13 +85,9 @@ func guestLoginHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	short := vid
-	if i := strings.IndexByte(vid, '-'); i > 0 {
-		short = vid[:i] // 不知道怎么取名，那我就取 uuid 前缀当展示用户名算了
-	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":    token,
-		"username": "guest-" + short,
+		"token": token,
 	})
 }
 
@@ -114,7 +110,7 @@ func main() {
 	// 新增：游客登录（前端调用 http://localhost:3001/guest-login）
 	mux.HandleFunc("/guest-login", guestLoginHandler)
 
-	// ---- 连接数据库（从环境变量 DB_DSN 读取）
+	// 连接数据库（从环境变量 DB_DSN 读取）
 	dsn := os.Getenv("DB_DSN")
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -124,6 +120,13 @@ func main() {
 		log.Fatal("db ping error", "error", err)
 	}
 	defer db.Close()
+
+	// 刷新页面状态
+	mux.HandleFunc("/api/v1/sessions/current", focus.CurrentHandler(db))
+
+	// 成长事件通道（给宠物系统/前端用）
+	mux.HandleFunc("/api/v1/events/growth/pull", focus.GrowthPullHandler(db)) // GET ?limit=50
+	mux.HandleFunc("/api/v1/events/growth/ack", focus.GrowthAckHandler(db))   // POST {"last_id":123}
 
 	// A 线接口（番茄钟与统计）
 	mux.HandleFunc("/api/v1/sessions/start", focus.StartHandler(db))
