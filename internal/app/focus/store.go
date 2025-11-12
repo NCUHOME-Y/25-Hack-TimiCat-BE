@@ -189,12 +189,15 @@ func (s *Store) Finish(ctx context.Context, visitorID string, minSeconds int64) 
 	// 计算总时长
 	var totalSec int64
 	if err := tx.QueryRowContext(ctx, `
-  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at)))::bigint, 0)
-  FROM focus_segments WHERE session_id=$1
+  SELECT COALESCE(
+           SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at)))::bigint,
+           0
+         )
+  FROM focus_segments
+  WHERE session_id=$1
 `, sid).Scan(&totalSec); err != nil {
 		return 0, 0, err
 	}
-
 	// 幂等： finished 的直接返回
 	var prev string
 	_ = tx.QueryRowContext(ctx, `SELECT status FROM focus_sessions WHERE id=$1`, sid).Scan(&prev)
@@ -355,7 +358,7 @@ func (s *Store) Trend(ctx context.Context, visitorID string, days int) ([]DayIte
 	return items, nil
 }
 
-// period: day|week|month 的总分钟与会话次数
+// 时间段: day|week|month 的总分钟与会话次数
 type Overview struct {
 	Period       string `json:"period"` // day|week|month
 	TotalMinutes int    `json:"total_minutes"`

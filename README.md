@@ -42,3 +42,9 @@ copy .env.example .env
 ```
 
 ps: 项目使用 `github.com/NCUHOME-Y/25-Hack-TimiCat-BE` 作为模块名。
+
+# Windows PowerShell
+docker compose up -d           # 起 Postgres + Adminer
+$env:DB_DSN="postgres://app:app@localhost:5432/appdb?sslmode=disable"
+$env:MIN_SESSION_SEC="60"      # 开发可用 5；生产建议 60
+go run ./cmd/app
