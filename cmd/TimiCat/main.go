@@ -21,7 +21,6 @@ import (
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/handler"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/service"
 	pkgconfig "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/config"
-	pkgerr "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/err"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/logger"
 	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/middleware"
 )
@@ -160,18 +159,15 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM) // 也监听系统发的SIGTERM
 	<-quit
-	log.Info("shutting down server")
+	log.Info("关闭服务")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 给5秒收尾正在处理的请求
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("shutdown error", "error", err)
+		log.Error("关闭失败", "error", err)
 	}
-	log.Info("server stopped")
+	log.Info("服务停止")
 
-	// 下面这行目前没啥用，后续想在某个 HTTP 请求context中返回标准响应
-	// 或者编译时类型断言以确保函数签名符合预期啥的可以再改，不用的话连同pkgerr包一起删了
-	_ = pkgerr.JSON
 }
 
 // 解析 Authorization: Bearer <token>
@@ -234,5 +230,5 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusUnauthorized, map[string]any{"code": 401, "message": "unauthorized"})
+	writeJSON(w, http.StatusUnauthorized, map[string]any{"code": 401, "message": "不允许的访问"})
 }

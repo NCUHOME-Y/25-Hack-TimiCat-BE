@@ -115,13 +115,10 @@ func SummaryHandler(db *sql.DB) http.HandlerFunc {
 	s := NewStore(db)
 	return func(w http.ResponseWriter, r *http.Request) {
 		vid := getVisitorID(w, r)
-		days := 7
-		if q := r.URL.Query().Get("range"); q == "30d" {
-			days = 30
-		}
-		sum, err := s.Summary(r.Context(), vid, days)
+		// 现在固定返回 7 天视图
+		sum, err := s.Summary(r.Context(), vid, 7)
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(sum)

@@ -263,75 +263,137 @@ type DayItem struct {
 	Date    string `json:"date"`
 	Minutes int    `json:"minutes"`
 }
+
 type Summary struct {
 	TodayMinutes int       `json:"today_minutes"`
 	TodayCount   int       `json:"today_count"`
-	StreakDays   int       `json:"streak_days"`
-	Trend        []DayItem `json:"trend"`
-	Inactive48h  bool      `json:"inactive_48h"`
+	Last7d       []DayItem `json:"last7d"`        // 最近 7 天，含 0 填充
+	TotalMinutes int       `json:"total_minutes"` // 全部历史累计分钟
 }
 
-func (s *Store) Summary(ctx context.Context, visitorID string, days int) (Summary, error) {
+func (s *Store) Summary(ctx context.Context, visitorID string, _ int) (Summary, error) {
 	var res Summary
+	res.Last7d = make([]DayItem, 0, 7)
 
-	//初始化trend，返回null的话不符合契约
-	res.Trend = make([]DayItem, 0)
-
-	// 近 n 天趋势
+	// 1) 最近 7 天（按天聚合），只统计已完成会话的片段
 	rows, err := s.db.QueryContext(ctx, `
-      SELECT date_trunc('day', seg_end_at)::date AS d,
-             SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int AS m
-      FROM focus_segments seg
-      JOIN focus_sessions fs ON fs.id=seg.session_id
-      WHERE fs.visitor_id=$1 AND fs.status='finished'
-        AND seg_end_at >= now() - $2 * interval '1 day'
-      GROUP BY 1 ORDER BY 1
-    `, visitorID, days)
-
+	  SELECT date_trunc('day', seg_end_at)::date AS d,
+	         SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int AS m
+	  FROM focus_segments seg
+	  JOIN focus_sessions fs ON fs.id=seg.session_id
+	  WHERE fs.visitor_id=$1 AND fs.status='finished'
+	    AND seg_end_at >= now() - 7 * interval '1 day'
+	  GROUP BY 1 ORDER BY 1
+	`, visitorID)
 	if err != nil {
 		return res, err
 	}
 	defer rows.Close()
+
+	agg := map[string]int{}
 	for rows.Next() {
 		var d string
 		var m int
 		if err := rows.Scan(&d, &m); err != nil {
 			return res, err
 		}
-		res.Trend = append(res.Trend, DayItem{Date: d, Minutes: m})
+		agg[d] = m
 	}
 
-	// 今日分钟与次数
+	// 用 0 填满 近 7 天（含今天）
+	for i := 6; i >= 0; i-- {
+		d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
+		res.Last7d = append(res.Last7d, DayItem{Date: d, Minutes: agg[d]})
+	}
+
+	// 2) 今日分钟 & 今日次数
 	_ = s.db.QueryRowContext(ctx, `
-	  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int,0) AS m,
-	         COUNT(DISTINCT fs.id) AS c
+	  SELECT
+	    COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int, 0) AS m,
+	    COALESCE(COUNT(DISTINCT fs.id), 0) AS c
 	  FROM focus_segments seg
 	  JOIN focus_sessions fs ON fs.id=seg.session_id
 	  WHERE fs.visitor_id=$1 AND fs.status='finished'
 	    AND seg_end_at >= date_trunc('day', now())
 	`, visitorID).Scan(&res.TodayMinutes, &res.TodayCount)
 
-	// 48h 不活跃
+	// 3) 累计总分钟（历史全部 finished）
 	_ = s.db.QueryRowContext(ctx, `
-	  SELECT COALESCE((now() - MAX(fs.end_at)) > interval '48 hours', true)
-	  FROM focus_sessions fs
+	  SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int, 0)
+	  FROM focus_segments seg
+	  JOIN focus_sessions fs ON fs.id=seg.session_id
 	  WHERE fs.visitor_id=$1 AND fs.status='finished'
-	`, visitorID).Scan(&res.Inactive48h)
+	`, visitorID).Scan(&res.TotalMinutes)
 
-	// 简化 streak：从今天起向前累加连续有数据的天数
-	m := map[string]int{}
-	for _, it := range res.Trend {
-		m[it.Date] = it.Minutes
-	}
-	for i := 0; i < days; i++ {
-		d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
-		if m[d] > 0 {
-			res.StreakDays++
-		} else {
-			break
-		}
-	}
 	return res, nil
+}
+
+// 仅趋势（近 N 天）
+func (s *Store) Trend(ctx context.Context, visitorID string, days int) ([]DayItem, error) {
+	items := make([]DayItem, 0)
+	rows, err := s.db.QueryContext(ctx, `
+	  SELECT date_trunc('day', seg_end_at)::date AS d,
+	         SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int AS m
+	  FROM focus_segments seg
+	  JOIN focus_sessions fs ON fs.id=seg.session_id
+	  WHERE fs.visitor_id=$1 AND fs.status='finished'
+	    AND seg_end_at >= now() - $2 * interval '1 day'
+	  GROUP BY 1 ORDER BY 1
+	`, visitorID, days)
+	if err != nil {
+		return items, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		var m int
+		if err := rows.Scan(&d, &m); err != nil {
+			return items, err
+		}
+		items = append(items, DayItem{Date: d, Minutes: m})
+	}
+	return items, nil
+}
+
+// period: day|week|month 的总分钟与会话次数
+type Overview struct {
+	Period       string `json:"period"` // day|week|month
+	TotalMinutes int    `json:"total_minutes"`
+	SessionCount int    `json:"session_count"`
+}
+
+func (s *Store) Overview(ctx context.Context, visitorID, period string) (Overview, error) {
+	res := Overview{Period: period}
+	var trunc string
+	switch period {
+	case "day":
+		trunc = "day"
+	case "week":
+		trunc = "week"
+	case "month":
+		trunc = "month"
+	default:
+		trunc = "day"
+		res.Period = "day"
+	}
+	err := s.db.QueryRowContext(ctx, `
+	  WITH x AS (
+	    SELECT fs.id
+	    FROM focus_sessions fs
+	    WHERE fs.visitor_id=$1 AND fs.status='finished'
+	      AND fs.end_at >= date_trunc($2, now())
+	  )
+	  SELECT
+	    COALESCE((
+	      SELECT SUM(EXTRACT(EPOCH FROM (seg_end_at - seg_start_at))/60)::int
+	      FROM focus_segments seg
+	      JOIN focus_sessions fs2 ON fs2.id=seg.session_id
+	      WHERE fs2.visitor_id=$1 AND fs2.status='finished'
+	        AND seg_end_at >= date_trunc($2, now())
+	    ), 0) AS minutes,
+	    (SELECT COUNT(*) FROM x) AS cnt
+	`, visitorID, trunc).Scan(&res.TotalMinutes, &res.SessionCount)
+	return res, err
 }
 
 // 成长事件确认
