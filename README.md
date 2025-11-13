@@ -16,7 +16,7 @@ go mod download
 ```
 3. 打开docker 
 4. 在终端运行`docker compose up -d` （起 Postgres + Adminer）
-4. 运行程序`go run ./cmd/server/main.go`
+4. 运行程序`go run ./cmd/TimiCat`
 5. 前端或 Apifox 访问：
    - POST `/guest-login`
    - POST `/api/v1/sessions/start、pause、resume、finish、cancel`
