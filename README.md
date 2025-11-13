@@ -9,13 +9,14 @@
 
 
 ## 快速开始
-1. `cp .env.example .env`（按需修改端口）
-2.记得安装依赖
+1. 在终端执行`cp .env.example .env`（按需修改端口）
+2. 记得安装依赖，运行
 ```
 go mod download
 ```
-3. `docker compose up -d` （起 Postgres + Adminer）
-4. `go run ./cmd/server/main.go`
+3. 打开docker 
+4. 在终端运行`docker compose up -d` （起 Postgres + Adminer）
+4. 运行程序`go run ./cmd/server/main.go`
 5. 前端或 Apifox 访问：
    - POST `/guest-login`
    - POST `/api/v1/sessions/start、pause、resume、finish、cancel`
