@@ -1,234 +1,145 @@
 package main
 
 import (
-	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/gin-gonic/gin"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
+	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/config"
+	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/database"
 
-	focus "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/focus"
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/handler"
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/app/service"
-	pkgconfig "github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/config"
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/logger"
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/middleware"
+	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/handlers"
 )
 
-const visitorCookieName = "tcid"
-
-// 简单工具
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+// CORS 中间件：允许配置的源（本地前端开发用）
+// 从环境变量读取允许列表，只有在列表内的请求才会获得 CORS 头
+func cors() gin.HandlerFunc {
+	allow := os.Getenv("ALLOW_ORIGINS")
+	if allow == "" {
+		// 默认允许常见本地开发地址（localhost/127.0.0.1 的 3000 与 5173 端口）
+		allow = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		// 遍历允许列表，若请求来源在列表内则设置 CORS 头
+		for _, a := range splitCSV(allow) {
+			if origin == a {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Vary", "Origin")
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				break
+			}
+		}
+		// 对 OPTIONS 预检请求直接返回 204 No Content（浏览器跨域需要）
+		if c.Request.Method == http.MethodOptions {
+			c.Status(http.StatusNoContent)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
-func getOrSetVisitorID(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(visitorCookieName); err == nil && c.Value != "" {
-		return c.Value
+// splitCSV 将以逗号分隔的字符串分割成数组，并去除每个元素的前后空格
+// 例如："http://localhost:3000, http://127.0.0.1:3000" 会被拆成两个元素
+func splitCSV(s string) []string {
+	out := []string{}
+	t := ""
+	for _, r := range s {
+		if r == ',' {
+			// 遇到逗号，把当前累积的字符串 trim 后加入结果
+			if t != "" {
+				out = append(out, trim(t))
+			}
+			t = ""
+		} else {
+			// 积累字符
+			t += string(r)
+		}
 	}
-	vid := uuid.NewString()
-	http.SetCookie(w, &http.Cookie{
-		Name:     visitorCookieName,
-		Value:    vid,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   60 * 60 * 24 * 365, // 1年
-		// Secure: true, // 上线到 https 后再打开
-	})
-	return vid
+	// 处理最后一个元素（最后面可能没有逗号）
+	if t != "" {
+		out = append(out, trim(t))
+	}
+	return out
 }
 
-func issueGuestToken(visitorID string) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "dev-guest-secret" // 开发占位，生产换强随机
+// trim 从字符串的首尾删除空格和制表符
+func trim(s string) string {
+	// 删除前导空格和制表符
+	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
+		s = s[1:]
 	}
-	claims := jwt.MapClaims{
-		"vid":  visitorID,
-		"role": "guest",
-		"iat":  time.Now().Unix(),
-		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
+	// 删除尾部空格和制表符
+	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
+		s = s[:len(s)-1]
 	}
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString([]byte(secret))
+	return s
 }
 
-// /guest-login 处理器
-func guestLoginHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
-			"code": 405, "message": "请求方法有误",
-		})
-		return
+// visitor 中间件：为每个游客分配唯一 ID（存储在 cookie 中）
+// 如果浏览器没有 tcid cookie，就生成一个新的 UUID 并设置，有效期一年
+func visitor() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, err := c.Cookie("tcid"); err != nil {
+			// Cookie 不存在或读取失败，为新游客签发 ID
+			id := handlers.IssueVisitorID()
+			// HttpOnly 防止 JS 读取；SameSite 防止跨站请求伪造
+			// 开发环境用 Secure=false，上线改为 true（需要 HTTPS）
+			c.SetCookie("tcid", id, 3600*24*365, "/", "", false, true)
+		}
+		c.Next()
 	}
-
-	vid := getOrSetVisitorID(w, r)
-	token, err := issueGuestToken(vid)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"code": 500, "message": "token 错误",
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token": token,
-	})
 }
 
 func main() {
-	cfg, err := pkgconfig.Load()
+	cfg, _ := config.Load()
+	gin.SetMode(gin.ReleaseMode)
+
+	// 初始化数据库连接并运行迁移（AutoMigrate 会自动创建表及索引）
+	gormDB, err := database.InitGorm(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal("db init error:", err)
 	}
 
-	log := logger.Init(cfg.Env)
-	defer func() { _ = log.Sync() }()
+	// 创建 Gin 路由器，使用内置的恢复和自定义中间件
+	r := gin.New()
+	r.Use(gin.Recovery()) // 捕获 panic 并返回 500
+	r.Use(cors())         // CORS 跨域支持
+	r.Use(visitor())      // 为游客分配/识别 ID
 
-	// 服务与处理器（健康检查保留）
-	hs := service.NewHealthService()
-	healthHandler := handler.NewHealthHandler(hs)
-
-	mux := http.NewServeMux()
-	mux.Handle("/api/v1/healthz", healthHandler)
-	mux.HandleFunc("/me", meHandler)
-	// 新增：游客登录（前端调用 http://localhost:3001/guest-login）
-	mux.HandleFunc("/guest-login", guestLoginHandler)
-
-	// 连接数据库（从环境变量 DB_DSN 读取）
-	dsn := os.Getenv("DB_DSN")
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		log.Fatal("db open error", "error", err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		log.Fatal("db ping error", "error", err)
-	}
-	defer db.Close()
-
-	// 刷新页面状态
-	mux.HandleFunc("/api/v1/sessions/current", focus.CurrentHandler(db))
-
-	// 成长事件通道（给宠物系统/前端用）
-	mux.HandleFunc("/api/v1/events/growth/pull", focus.GrowthPullHandler(db)) // GET ?limit=50
-	mux.HandleFunc("/api/v1/events/growth/ack", focus.GrowthAckHandler(db))   // POST {"last_id":123}
-
-	// A 线接口（番茄钟与统计）
-	mux.HandleFunc("/api/v1/sessions/start", focus.StartHandler(db))
-	mux.HandleFunc("/api/v1/sessions/pause", focus.PauseHandler(db))
-	mux.HandleFunc("/api/v1/sessions/resume", focus.ResumeHandler(db))
-	mux.HandleFunc("/api/v1/sessions/finish", focus.FinishHandler(db))
-	mux.HandleFunc("/api/v1/sessions/cancel", focus.CancelHandler(db))
-	mux.HandleFunc("/api/v1/stats/summary", focus.SummaryHandler(db))
-
-	// 中间件链：请求ID -> 恢复 -> CORS -> mux
-	handlerWithMiddleware := middleware.RequestID(
-		middleware.Recovery(log)(
-			middleware.CORS(mux),
-		),
-	)
-
-	srv := &http.Server{
-		Addr:    cfg.Addr, // 对应前端 .env 配成 :3001
-		Handler: handlerWithMiddleware,
-	}
-
-	// 启动服务器
-	go func() {
-		log.Info("starting server", "addr", cfg.Addr, "env", cfg.Env)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server failed", "error", err)
-		}
-	}()
-
-	// 优雅关闭 (监听Ctrl + c以停止运行)
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM) // 也监听系统发的SIGTERM
-	<-quit
-	log.Info("关闭服务")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 给5秒收尾正在处理的请求
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("关闭失败", "error", err)
-	}
-	log.Info("服务停止")
-
-}
-
-// 解析 Authorization: Bearer <token>
-func parseBearer(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimPrefix(h, "Bearer ")
-	}
-	return ""
-}
-
-func verifyGuestToken(tok string) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "dev-guest-secret"
-	}
-	parsed, err := jwt.Parse(tok, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
-		}
-		return []byte(secret), nil
+	// 健康检查端点（用于负载均衡器和监控探测）
+	r.GET("/api/v1/healthz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok", "ts": time.Now().Unix()})
 	})
-	if err != nil || !parsed.Valid {
-		return "", fmt.Errorf("invalid token")
-	}
-	if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
-		if vid, _ := claims["vid"].(string); vid != "" {
-			return vid, nil
-		}
-	}
-	return "", fmt.Errorf("missing vid")
-}
 
-// GET /me
-func meHandler(w http.ResponseWriter, r *http.Request) {
-	// 先尝试 Bearer token
-	if tok := parseBearer(r); tok != "" {
-		if vid, err := verifyGuestToken(tok); err == nil {
-			short := vid
-			if i := strings.IndexByte(vid, '-'); i > 0 {
-				short = vid[:i]
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"username":  "guest-" + short,
-				"visitorId": vid,
-			})
-			return
-		}
+	// 游客登录相关
+	r.POST("/guest-login", handlers.GuestLogin(cfg))
+
+	// 番茄钟计时及统计相关路由
+	f := handlers.NewFocus(gormDB)
+
+	r.POST("/api/v1/sessions/start", f.Start)    // 开始新的计时
+	r.POST("/api/v1/sessions/pause", f.Pause)    // 暂停计时
+	r.POST("/api/v1/sessions/resume", f.Resume)  // 恢复计时
+	r.POST("/api/v1/sessions/finish", f.Finish)  // 完成计时
+	r.POST("/api/v1/sessions/cancel", f.Cancel)  // 取消计时
+	r.GET("/api/v1/sessions/current", f.Current) // 查询当前计时
+
+	// 统计相关：今日/近7天/总计
+	r.GET("/api/v1/stats/summary", f.Summary)
+
+	// 成长事件：用于前端和宠物系统获取用户成长数据
+	r.GET("/api/v1/events/growth/pull", f.GrowthPull) // 拉取未处理的成长事件，?limit=50
+	r.POST("/api/v1/events/growth/ack", f.GrowthAck)  // 确认已处理的成长事件，body: {"last_id":123}
+
+	log.Println("listen on", cfg.Addr)
+	if err := r.Run(cfg.Addr); err != nil {
+		log.Fatal(err)
 	}
-	// 回退：cookie 里拿 tcid（对齐游客登陆）
-	if c, err := r.Cookie(visitorCookieName); err == nil && c.Value != "" {
-		vid := c.Value
-		short := vid
-		if i := strings.IndexByte(vid, '-'); i > 0 {
-			short = vid[:i]
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"username":  "guest-" + short,
-			"visitorId": vid,
-		})
-		return
-	}
-	writeJSON(w, http.StatusUnauthorized, map[string]any{"code": 401, "message": "不允许的访问"})
 }
