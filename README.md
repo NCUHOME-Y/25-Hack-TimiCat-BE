@@ -4,47 +4,30 @@
 
 目录结构（主要部分）:
 
-- cmd/app
-- internal/app/{handler,service,repository,model}
-- internal/pkg/{config,logger,err,middleware}
-- migrations
-- test/integration
+- cmd/TimiCat
+- internal/{config,database,handlers,models}
 
-使用
 
-1. 复制 `.env.example` 为 `.env` 并根据需要修改
-2. 运行开发模式:
-
-```powershell
-make run
-```
-
-3. 运行测试:
-
-```powershell
-make test
-```
-4. 数据库相关操作请看 (先起数据库)25-Hack-TimiCat-BE\docker-compose.yml
-
-5.记得安装依赖
-
+## 快速开始
+1. `cp .env.example .env`（按需修改端口）
+2.记得安装依赖
 ```
 go mod download
 ```
+3. `docker compose up -d` （起 Postgres + Adminer）
+4. `go run ./cmd/server/main.go`
+5. 前端或 Apifox 访问：
+   - POST `/guest-login`
+   - POST `/api/v1/sessions/start、pause、resume、finish、cancel`
+   - GET  `/api/v1/sessions/current`
+   - GET  `/api/v1/stats/summary`
+   - GET  `/api/v1/events/growth/pull?limit=50`
+   - POST `/api/v1/events/growth/ack`
 
-6.环境
-```
-# 环境：把示例复制成真实 .env
-# 确保里面是：
-#   APP_PORT=3001
-#   DB_DSN=postgres://app:app@localhost:5432/appdb?sslmode=disable
-copy .env.example .env
-```
+## 设计说明
+- 使用 **GORM** 自动迁移，无需手写 SQL
+- 统计数据采用 **Go 侧聚合**，逻辑简单
+- 按 PRD 流程覆盖“开始/暂停/继续/结束/统计/成长事件”  
+
 
 ps: 项目使用 `github.com/NCUHOME-Y/25-Hack-TimiCat-BE` 作为模块名。
-
-# Windows PowerShell
-docker compose up -d           # 起 Postgres + Adminer
-$env:DB_DSN="postgres://app:app@localhost:5432/appdb?sslmode=disable"
-$env:MIN_SESSION_SEC="60"      # 开发可用 5；生产建议 60
-go run ./cmd/app
