@@ -2,11 +2,7 @@ package config
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
-
-var DB *gorm.DB
 
 // AppConfig 配置结构体
 type AppConfig struct {
