@@ -24,7 +24,7 @@ func signGuestToken(secret, visitorID string) (string, error) {
 	return t.SignedString([]byte(secret))
 }
 
-// POST /guest-login
+// GuestLogin POST /guest-login
 // 返回 token（不返回 username）
 func GuestLogin(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -44,13 +44,13 @@ func GuestLogin(cfg *config.Config) gin.HandlerFunc {
 }
 
 // GET /me  仅用于校验/拿 visitorId（不返回 username）
-func Me() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		vid, err := c.Cookie("tcid")
-		if err != nil || vid == "" {
-			c.JSON(401, gin.H{"code": 401, "message": "unauthorized"})
-			return
-		}
-		c.JSON(200, gin.H{"visitorId": vid})
-	}
-}
+//func Me() gin.HandlerFunc {
+//	return func(c *gin.Context) {
+//		vid, err := c.Cookie("tcid")
+//		if err != nil || vid == "" {
+//			c.JSON(401, gin.H{"code": 401, "message": "unauthorized"})
+//			return
+//		}
+//		c.JSON(200, gin.H{"visitorId": vid})
+//	}
+//}
