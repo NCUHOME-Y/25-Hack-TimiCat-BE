@@ -1,0 +1,19 @@
+server:
+  port: 8080
+  mode: release
+
+database:
+  driver: mysql
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: 20070714
+  #你的密码
+  name: timicat
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+
+jwt:
+  secret: "my_super_secret_key"
+  expire_hours: 72
