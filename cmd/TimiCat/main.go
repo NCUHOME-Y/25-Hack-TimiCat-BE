@@ -35,6 +35,7 @@ func main() {
 
 	// 游客登录相关
 	r.POST("/guest-login", handlers.GuestLogin(cfg))
+	r.GET("/me", handlers.Me())
 
 	// 番茄钟计时及统计相关路由
 	f := handlers.NewFocus(gormDB)
