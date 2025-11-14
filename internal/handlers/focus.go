@@ -189,7 +189,7 @@ func (f *Focus) Cancel(c *gin.Context) {
 	f.DB.Model(&models.Session{}).Where("id=?", sess.ID).
 		Updates(map[string]any{"status": "canceled", "end_at": &now})
 
-		// 把未结束的片段也收口
+	// 把未结束的片段也收口
 	f.DB.Model(&models.Segment{}).Where("session_id=? AND end_at IS NULL", sess.ID).
 		Update("end_at", &now)
 	c.JSON(200, gin.H{"status": "canceled"})
@@ -369,15 +369,22 @@ func (f *Focus) Achievements(c *gin.Context) {
 	for _, s := range sessions {
 		totalSec += s.DurationSec
 	}
+
 	// 选择所有 threshold <= totalSec 的成就
-	unlocked := make([]models.Achievement, 0, len(models.Achievements))
+	resp := make([]models.Achievement, 0, len(models.Achievements))
 	for _, a := range models.Achievements {
-		if totalSec >= a.Threshold {
-			unlocked = append(unlocked, a)
-		}
+		resp = append(resp, models.Achievement{
+			ID:          a.ID,
+			Name:        a.Name,
+			Content:     a.Content,
+			Subtitle:    a.Subtitle,
+			Achievement: a.Achievement,
+			Threshold:   a.Threshold,
+			Unlocked:    totalSec >= a.Threshold,
+		})
 	}
 	c.JSON(200, gin.H{
 		"total_minutes": totalSec / 60, // 方便前端展示
-		"Achievement":   unlocked,
+		"achievements":  resp,
 	})
 }

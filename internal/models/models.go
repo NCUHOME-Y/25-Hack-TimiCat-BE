@@ -14,7 +14,7 @@ type Session struct {
 	PlannedMinutes *int    `json:"planned_minutes"`
 	TaskName       *string `json:"task_name"`
 
-	Status      string         `json:"status"` // started、paused、finished、canceled
+	Status      string         `json:"status"` // 用户状态 started、paused、finished、canceled
 	StartAt     time.Time      `json:"start_at" gorm:"autoCreateTime"`
 	EndAt       *time.Time     `json:"end_at"`
 	DurationSec int64          `json:"duration_sec"` // 结束时写入

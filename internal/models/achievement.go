@@ -7,6 +7,7 @@ type Achievement struct {
 	Subtitle    string `json:"subtitle"`
 	Achievement string `json:"achievement"`
 	Threshold   int64  `json:"requirement"`
+	Unlocked    bool   `json:"unlocked"`
 }
 
 var Achievements = []Achievement{
@@ -17,6 +18,7 @@ var Achievements = []Achievement{
 		Subtitle:    "第一次见到小猫",
 		Achievement: "人，\n你等了咪很多个冬天吗？",
 		Threshold:   1, // 1秒测试
+
 	},
 	{
 		ID:          2,
@@ -25,6 +27,7 @@ var Achievements = []Achievement{
 		Subtitle:    "专注时长累计达到 5h 20min",
 		Achievement: "人，\n爱咪，或者不爱咪，\n咪都在这里。",
 		Threshold:   5*3600 + 20*60, // 5小时20分
+
 	},
 	{
 		ID:          3,
@@ -33,6 +36,7 @@ var Achievements = []Achievement{
 		Subtitle:    "专注时长累计达到 24h",
 		Achievement: "人，\n春天远远的，你呢？",
 		Threshold:   24 * 3600, //24小时
+
 	},
 	{
 		ID:          4,
@@ -41,5 +45,6 @@ var Achievements = []Achievement{
 		Subtitle:    "专注时长累计达到 36h",
 		Achievement: "人，\n你的小岛上，\n只有我一只咪吗？",
 		Threshold:   36 * 3600, //36小时
+
 	},
 }
