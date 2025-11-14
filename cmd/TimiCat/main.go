@@ -138,6 +138,9 @@ func main() {
 	r.GET("/api/v1/events/growth/pull", f.GrowthPull) // 拉取未处理的成长事件，?limit=50
 	r.POST("/api/v1/events/growth/ack", f.GrowthAck)  // 确认已处理的成长事件，body: {"last_id":123}
 
+	//成就
+	r.GET("/api/v1/achievements", f.Achievements)
+
 	log.Println("listen on", cfg.Addr)
 	if err := r.Run(cfg.Addr); err != nil {
 		log.Fatal(err)
