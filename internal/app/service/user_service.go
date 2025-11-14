@@ -60,9 +60,11 @@ func (s *UserService) GuestLogin() (map[string]interface{}, error) {
 func (s *UserService) StartFocus(userID uint64) (*model.User, error) {
 	now := time.Now()
 
+	fal := false
+
 	record := &model.User{
 		StartTime:      &now,
-		IsCompleted:    false,
+		IsCompleted:    &fal,
 		DurationSecond: 0,
 	}
 	if err := s.repo.Update(userID, record); err != nil {
@@ -84,14 +86,15 @@ func (s *UserService) EndFocus(userID uint64) (*model.User, error) {
 		log.Printf("err: %v", err)
 		return nil, err
 	}
-	if rec.IsCompleted {
+	if *rec.IsCompleted {
 		return rec, errors.New("专注已结束")
 	} else {
 		now := time.Now()
+		tr := true
 		rec.EndTime = &now
 		rec.DurationSecond = int64(now.Sub(*rec.StartTime).Seconds()) // 通过开始结束的时间相减来判断总时长（可能需要修改）
 		rec.TotalDuration += rec.DurationSecond
-		rec.IsCompleted = true
+		rec.IsCompleted = &tr
 		return rec, s.repo.Update(userID, rec)
 	}
 }
