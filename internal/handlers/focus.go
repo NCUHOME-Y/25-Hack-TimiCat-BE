@@ -38,7 +38,7 @@ func (f *Focus) Start(c *gin.Context) {
 	}
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess := models.Session{
@@ -99,12 +99,12 @@ func (f *Focus) Pause(c *gin.Context) {
 func (f *Focus) Resume(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok || sess.Status != "paused" {
-		c.JSON(400, gin.H{"message": "not paused"})
+		c.JSON(400, gin.H{"message": "无访客"})
 		return
 	}
 
@@ -116,7 +116,7 @@ func (f *Focus) Resume(c *gin.Context) {
 }
 
 // Finish 完成计时会话
-// 逻辑：收口所有片段，计算总秒数，若小于 1 分钟视为无效，否则创建成长事件
+// 收口所有片段，计算总秒数，若小于 1 分钟视为无效，否则创建成长事件
 func (f *Focus) Finish(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
@@ -173,11 +173,11 @@ func (f *Focus) Finish(c *gin.Context) {
 	})
 }
 
-// POST /api/v1/sessions/cancel
+// Cancel POST /api/v1/sessions/cancel
 func (f *Focus) Cancel(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
@@ -195,7 +195,7 @@ func (f *Focus) Cancel(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "canceled"})
 }
 
-// GET /api/v1/sessions/current
+// Current GET /api/v1/sessions/current
 func (f *Focus) Current(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
@@ -247,6 +247,7 @@ func (f *Focus) Summary(c *gin.Context) {
 		d := s.EndAt.Truncate(24 * time.Hour).Format("2006-01-02")
 		dayMap[d] += int(s.DurationSec / 60)
 	}
+
 	// 构造返回的 7 天数组，倒序遍历（从前 6 天到今天）
 	for i := 6; i >= 0; i-- {
 		d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
@@ -352,4 +353,31 @@ func (f *Focus) totalSeconds(sessionID uint) int64 {
 
 func (f *Focus) elapsedNow(sessionID uint) int64 {
 	return f.totalSeconds(sessionID)
+}
+
+// Achievements 返回总专注分钟数与已解锁的成就列表（阈值用秒对比）
+func (f *Focus) Achievements(c *gin.Context) {
+	vid, ok := f.visitorID(c)
+	if !ok {
+		c.JSON(401, gin.H{"message": "no visitor"})
+		return
+	}
+	// 汇总该游客所有已完成会话的总秒数
+	var sessions []models.Session
+	f.DB.Where("visitor_id=? AND status='finished'", vid).Find(&sessions)
+	var totalSec int64
+	for _, s := range sessions {
+		totalSec += s.DurationSec
+	}
+	// 选择所有 threshold <= totalSec 的成就
+	unlocked := make([]models.Achievement, 0, len(models.Achievements))
+	for _, a := range models.Achievements {
+		if totalSec >= a.Threshold {
+			unlocked = append(unlocked, a)
+		}
+	}
+	c.JSON(200, gin.H{
+		"total_minutes": totalSec / 60, // 方便前端展示
+		"Achievement":   unlocked,
+	})
 }

@@ -6,7 +6,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// 一次专注会话
+// Session 一次专注会话
 type Session struct {
 	ID             uint    `json:"id" gorm:"primaryKey"`
 	VisitorID      string  `json:"visitor_id" gorm:"type:uuid"`
@@ -24,7 +24,7 @@ type Session struct {
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// 一个专注片段（开始->结束或未结束）
+// Segment 一个专注片段（开始->结束或未结束）
 type Segment struct {
 	ID        uint       `json:"id" gorm:"primaryKey"`
 	SessionID uint       `json:"session_id" gorm:"index"`
@@ -32,7 +32,7 @@ type Segment struct {
 	EndAt     *time.Time `json:"seg_end_at"`
 }
 
-// 成长事件：当一次会话结束（>=60s）就写一条 minutes，用于前端/宠物系统消费
+// GrowthEvent 成长事件：当一次会话结束（>=60s）就写一条 minutes，用于前端/宠物系统消费
 type GrowthEvent struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	VisitorID string    `json:"visitor_id" gorm:"type:uuid;index"`

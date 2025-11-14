@@ -3,14 +3,13 @@ package handlers
 import (
 	"time"
 
+	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/config"
 )
 
-// 生成游客 cookie 用的 uuid
+// IssueVisitorID 生成游客 cookie 用的 uuid
 func IssueVisitorID() string { return uuid.NewString() }
 
 // 简单签发 JWT（给前端存 localStorage 用）
@@ -25,7 +24,7 @@ func signGuestToken(secret, visitorID string) (string, error) {
 	return t.SignedString([]byte(secret))
 }
 
-// POST /guest-login
+// GuestLogin POST /guest-login
 // 返回 token（不返回 username）
 func GuestLogin(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -45,13 +44,13 @@ func GuestLogin(cfg *config.Config) gin.HandlerFunc {
 }
 
 // GET /me  仅用于校验/拿 visitorId（不返回 username）
-func Me() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		vid, err := c.Cookie("tcid")
-		if err != nil || vid == "" {
-			c.JSON(401, gin.H{"code": 401, "message": "unauthorized"})
-			return
-		}
-		c.JSON(200, gin.H{"visitorId": vid})
-	}
-}
+//func Me() gin.HandlerFunc {
+//	return func(c *gin.Context) {
+//		vid, err := c.Cookie("tcid")
+//		if err != nil || vid == "" {
+//			c.JSON(401, gin.H{"code": 401, "message": "unauthorized"})
+//			return
+//		}
+//		c.JSON(200, gin.H{"visitorId": vid})
+//	}
+//}
