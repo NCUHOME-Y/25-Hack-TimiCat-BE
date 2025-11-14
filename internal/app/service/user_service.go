@@ -61,7 +61,6 @@ func (s *UserService) StartFocus(userID uint64) (*model.User, error) {
 	now := time.Now()
 
 	record := &model.User{
-		ID:             userID,
 		StartTime:      &now,
 		IsCompleted:    false,
 		DurationSecond: 0,
@@ -69,6 +68,7 @@ func (s *UserService) StartFocus(userID uint64) (*model.User, error) {
 	if err := s.repo.Update(userID, record); err != nil {
 		return nil, err
 	}
+	s.repo.DB.Select("id,user_name").Find(&record)
 	return record, nil
 }
 
@@ -131,7 +131,7 @@ func (s *UserService) GetAchievements(userID uint64) ([]model.Achievement, error
 	return achs, nil
 }
 
-// 获取用户信息
+// GetInformation 获取用户信息
 func (s *UserService) GetInformation(userID uint64) (*model.User, error) {
 	rec, err := s.repo.GetInformation(userID)
 	if err != nil {

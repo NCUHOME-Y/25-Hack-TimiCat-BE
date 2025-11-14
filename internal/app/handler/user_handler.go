@@ -46,6 +46,7 @@ func (h *UserHandler) StartFocus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "开始专注",
 		"id":        record.ID,

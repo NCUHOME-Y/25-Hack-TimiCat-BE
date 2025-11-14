@@ -29,11 +29,6 @@ func (r *UserRepository) GetUserByName(username string) (*model.User, error) {
 	return &user, err
 }
 
-// Create 创建记录（开始专注）
-func (r *UserRepository) Create(record *model.User) error {
-	return r.DB.Create(record).Error
-}
-
 // GetInformation  （获取记录）
 func (r *UserRepository) GetInformation(userID uint64) (*model.User, error) {
 	var user model.User

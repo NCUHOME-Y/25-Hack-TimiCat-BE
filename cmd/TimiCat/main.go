@@ -47,9 +47,9 @@ func main() {
 			c.JSON(200, gin.H{"msg": "JWT验证成功", "user": c.GetString("user_name")})
 		})
 	}
-	protected.POST("/start", h.StartFocus)
-	protected.POST("/end", h.EndFocus)
-	protected.GET("/ach", h.GetAchievement)
+	protected.POST("/start", h.StartFocus)  // 开始专注
+	protected.POST("/end", h.EndFocus)      // 结束专注
+	protected.GET("/ach", h.GetAchievement) // 查询总用时和成就
 
 	// 4️ 启动服务
 	r.Run(":8080")
