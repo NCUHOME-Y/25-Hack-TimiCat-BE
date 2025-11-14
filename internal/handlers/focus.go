@@ -225,8 +225,13 @@ func (f *Focus) Summary(c *gin.Context) {
 		c.JSON(401, gin.H{"message": "no visitor"})
 		return
 	}
+
+	// 获取本地时区的时间
+	now := time.Now()
+	localNow := now.Local()
+
 	// 今日完成的会话（从今天 00:00:00 起）
-	startOfDay := time.Now().Truncate(24 * time.Hour)
+	startOfDay := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
 	var today []models.Session
 	f.DB.Where("visitor_id=? AND status='finished' AND end_at >= ?", vid, startOfDay).
 		Find(&today)
@@ -238,23 +243,31 @@ func (f *Focus) Summary(c *gin.Context) {
 	// 近 7 天（含今天）的数据，用 Go 填充为 0（没有数据的日期也显示为 0）
 	last7 := make([]map[string]any, 0, 7)
 	dayMap := map[string]int{}
+
 	// 找出近 7 天已完成的会话，累计每天的分钟数
 	weekAgo := time.Now().AddDate(0, 0, -6).Truncate(24 * time.Hour)
 	var all []models.Session
 	f.DB.Where("visitor_id=? AND status='finished' AND end_at >= ?", vid, weekAgo).Find(&all)
+
 	for _, s := range all {
-		// 将 end_at 时间戳转换为日期字符串，作为 dayMap 的 key
-		d := s.EndAt.Truncate(24 * time.Hour).Format("2006-01-02")
-		dayMap[d] += int(s.DurationSec / 60)
+		//安全处理 EndAt 指针
+		if s.EndAt != nil {
+			localEnd := s.EndAt.Local()
+			dateKey := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localEnd.Location()).Format("2006-01-02")
+			dayMap[dateKey] += int(s.DurationSec / 60)
+		}
 	}
 
-	// 构造返回的 7 天数组，倒序遍历（从前 6 天到今天）
-	for i := 6; i >= 0; i-- {
-		d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
-		last7 = append(last7, map[string]any{
-			"date":    d,
-			"minutes": dayMap[d],
-		})
+	// 构造返回的 7 天数组，往前推六天
+	for i := 0; i < 7; i++ {
+		date := startOfDay.AddDate(0, 0, -i)
+		dateStr := date.Format("2006-01-02")
+		last7 = append([]map[string]any{
+			{
+				"date":    dateStr,
+				"minutes": dayMap[dateStr],
+			},
+		}, last7...) // 插入到前面，保持日期顺序
 	}
 
 	// 总分钟（全历史）
