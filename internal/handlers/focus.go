@@ -173,7 +173,7 @@ func (f *Focus) Finish(c *gin.Context) {
 	})
 }
 
-// POST /api/v1/sessions/cancel
+// Cancel POST /api/v1/sessions/cancel
 func (f *Focus) Cancel(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
@@ -195,7 +195,7 @@ func (f *Focus) Cancel(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "canceled"})
 }
 
-// GET /api/v1/sessions/current
+// Current GET /api/v1/sessions/current
 func (f *Focus) Current(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {

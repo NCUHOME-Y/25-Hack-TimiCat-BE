@@ -3,14 +3,13 @@ package handlers
 import (
 	"time"
 
+	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-
-	"github.com/NCUHOME-Y/25-Hack-TimiCat-BE/internal/config"
 )
 
-// 生成游客 cookie 用的 uuid
+// IssueVisitorID 生成游客 cookie 用的 uuid
 func IssueVisitorID() string { return uuid.NewString() }
 
 // 简单签发 JWT（给前端存 localStorage 用）
