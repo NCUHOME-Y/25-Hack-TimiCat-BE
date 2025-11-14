@@ -26,7 +26,7 @@ go mod download
    - POST `/api/v1/events/growth/ack`
 
 ## 设计说明
-- 使用 **GORM** 自动迁移，无需手写 SQL
+- 使用 **GORM** 自动迁移
 - 统计数据采用 **Go 侧聚合**，逻辑简单
 - 按 PRD 流程覆盖“开始/暂停/继续/结束/统计/成长事件”  
 
