@@ -36,7 +36,7 @@ func GuestLogin(cfg *config.Config) gin.HandlerFunc {
 		}
 		token, err := signGuestToken(cfg.JWTSecret, vid)
 		if err != nil {
-			c.JSON(500, gin.H{"code": 500, "message": "token error"})
+			c.JSON(500, gin.H{"code": 500, "message": "token错误"})
 			return
 		}
 		c.JSON(200, gin.H{"token": token})
@@ -48,7 +48,7 @@ func Me() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		vid, err := c.Cookie("tcid")
 		if err != nil || vid == "" {
-			c.JSON(401, gin.H{"code": 401, "message": "unauthorized"})
+			c.JSON(401, gin.H{"code": 401, "message": "未授权"})
 			return
 		}
 		c.JSON(200, gin.H{"visitorId": vid})
