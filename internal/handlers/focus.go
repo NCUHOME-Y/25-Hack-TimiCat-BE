@@ -38,7 +38,7 @@ func (f *Focus) Start(c *gin.Context) {
 	}
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "无访客"})
+		c.JSON(401, gin.H{"message": "no visitor"})
 		return
 	}
 	sess := models.Session{
@@ -99,12 +99,12 @@ func (f *Focus) Pause(c *gin.Context) {
 func (f *Focus) Resume(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "无访客"})
+		c.JSON(401, gin.H{"message": "no visitor"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok || sess.Status != "paused" {
-		c.JSON(400, gin.H{"message": "无访客"})
+		c.JSON(400, gin.H{"message": "no visitor"})
 		return
 	}
 
@@ -177,7 +177,7 @@ func (f *Focus) Finish(c *gin.Context) {
 func (f *Focus) Cancel(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "无访客"})
+		c.JSON(401, gin.H{"message": "no visitor"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
@@ -226,12 +226,11 @@ func (f *Focus) Summary(c *gin.Context) {
 		return
 	}
 
-	// 获取本地时区的时间
-	now := time.Now()
-	localNow := now.Local()
+	// 使用 UTC 时间进行计算，避免时区混乱
+	now := time.Now().UTC()
 
-	// 今日完成的会话（从今天 00:00:00 起）
-	startOfDay := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+	// 今日完成的会话（从今天 UTC 00:00:00 起）
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	var today []models.Session
 	f.DB.Where("visitor_id=? AND status='finished' AND end_at >= ?", vid, startOfDay).
 		Find(&today)
@@ -245,15 +244,16 @@ func (f *Focus) Summary(c *gin.Context) {
 	dayMap := map[string]int{}
 
 	// 找出近 7 天已完成的会话，累计每天的分钟数
-	weekAgo := time.Now().AddDate(0, 0, -6).Truncate(24 * time.Hour)
+	weekAgo := time.Now().AddDate(0, 0, -6)
 	var all []models.Session
 	f.DB.Where("visitor_id=? AND status='finished' AND end_at >= ?", vid, weekAgo).Find(&all)
 
 	for _, s := range all {
-		//安全处理 EndAt 指针
+		//安全处理 EndAt 指针，使用 UTC 时间
 		if s.EndAt != nil {
-			localEnd := s.EndAt.Local()
-			dateKey := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localEnd.Location()).Format("2006-01-02")
+			// 使用 UTC 时间进行计算
+			endUTC := *s.EndAt // s.EndAt 已经是 UTC 时间
+			dateKey := time.Date(endUTC.Year(), endUTC.Month(), endUTC.Day(), 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 			dayMap[dateKey] += int(s.DurationSec / 60)
 		}
 	}
