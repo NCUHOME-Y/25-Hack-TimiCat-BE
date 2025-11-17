@@ -38,7 +38,7 @@ func (f *Focus) Start(c *gin.Context) {
 	}
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess := models.Session{
@@ -66,12 +66,12 @@ func (f *Focus) Start(c *gin.Context) {
 func (f *Focus) Pause(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok || sess.Status != "started" {
-		c.JSON(400, gin.H{"message": "not started"})
+		c.JSON(400, gin.H{"message": "专注未开始"})
 		return
 	}
 	now := time.Now()
@@ -99,12 +99,12 @@ func (f *Focus) Pause(c *gin.Context) {
 func (f *Focus) Resume(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok || sess.Status != "paused" {
-		c.JSON(400, gin.H{"message": "no visitor"})
+		c.JSON(400, gin.H{"message": "没有可继续的专注事件"})
 		return
 	}
 
@@ -120,12 +120,12 @@ func (f *Focus) Resume(c *gin.Context) {
 func (f *Focus) Finish(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok {
-		c.JSON(400, gin.H{"message": "no active session"})
+		c.JSON(400, gin.H{"message": "没有正在进行的专注"})
 		return
 	}
 	now := time.Now()
@@ -141,7 +141,7 @@ func (f *Focus) Finish(c *gin.Context) {
 	// 少于 1 分钟视为太短（短短的也很可爱呢:)）
 	minLimit := int64(60)
 	if total < minLimit {
-		c.String(400, "It ended too quickly")
+		c.String(400, "结束太快了不会计入总时长哦，至少大于一分钟喵~")
 		return
 	}
 	// 会话结束，并标记结束时间与总秒数
@@ -177,12 +177,12 @@ func (f *Focus) Finish(c *gin.Context) {
 func (f *Focus) Cancel(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
 	if !ok {
-		c.JSON(400, gin.H{"message": "no active session"})
+		c.JSON(400, gin.H{"message": "没有正在进行的专注"})
 		return
 	}
 	now := time.Now()
@@ -199,7 +199,7 @@ func (f *Focus) Cancel(c *gin.Context) {
 func (f *Focus) Current(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	sess, ok := f.findMutable(vid)
@@ -222,7 +222,7 @@ func (f *Focus) Current(c *gin.Context) {
 func (f *Focus) Summary(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 
@@ -293,7 +293,7 @@ func (f *Focus) Summary(c *gin.Context) {
 func (f *Focus) GrowthPull(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	limit := 50
@@ -319,12 +319,12 @@ type ackReq struct {
 func (f *Focus) GrowthAck(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	var req ackReq
 	if err := c.ShouldBindJSON(&req); err != nil || req.LastID == 0 {
-		c.JSON(400, gin.H{"message": "bad last_id"})
+		c.JSON(400, gin.H{"message": "无效的last_id"})
 		return
 	}
 	// 将 ≤ last_id 的所有事件标记为已处理，防止重复拉取
@@ -372,7 +372,7 @@ func (f *Focus) elapsedNow(sessionID uint) int64 {
 func (f *Focus) Achievements(c *gin.Context) {
 	vid, ok := f.visitorID(c)
 	if !ok {
-		c.JSON(401, gin.H{"message": "no visitor"})
+		c.JSON(401, gin.H{"message": "无访客"})
 		return
 	}
 	// 汇总该游客所有已完成会话的总秒数
